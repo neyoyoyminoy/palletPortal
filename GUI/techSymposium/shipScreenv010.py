@@ -1,25 +1,20 @@
 """
 shipScreenv010.py
 
-standalone shipment screen:
-- centered glitch title "SHIPMENT IN PROGRESS"
+shipment in progress screen
+- glitch title using same logic as welcome screen
 - left: rounded white bubble "<code> was scanned"
-- left middle: pill-style animated progress bar + percentage label
-- right: "SCANNED BARCODES" + rounded white panel with list
-- black background with white text + cyan accent
-
-later, the main gui can call:
-    set_manifest_codes([...])
-    on_barcode_matched(code, score, method)
-
-includes 4-button exit combo: hold ctrl + c + v, then press enter/return.
+- left middle: pill-style animated progress bar + percent text
+- right: "SCANNED BARCODES" + rounded white panel listing manifest
+- black background, white text, cyan/green accents
+- 4-button exit combo (ctrl + c + v + enter/return)
+- _DemoDriver for standalone testing
 """
 
-import sys
-import random
-import string
-
-from PyQt5.QtCore import Qt, QTimer, QRect
+import sys  #for argv + exit
+import random  #for glitch
+import string  #for glitch
+from PyQt5.QtCore import Qt, QTimer, QRect, QSize
 from PyQt5.QtGui import QPainter, QColor, QFont, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
@@ -31,10 +26,11 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
 )
 
-CYAN_LOGO_PATH = "/mnt/ssd/PalletPortal/transparentCyanLogo.png"
+
+CYAN_LOGO_PATH = "/mnt/ssd/PalletPortal/transparentCyanLogo.png"  #update path if needed
 
 
-# -------------------- glitch title (copy of welcome style) --------------------
+# -------------------- glitch title widget --------------------
 class GlitchTitle(QWidget):
     def __init__(self, text="SHIPMENT IN PROGRESS", parent=None):
         super().__init__(parent)
@@ -51,13 +47,13 @@ class GlitchTitle(QWidget):
     def update_glitch(self):
         if random.random() < 0.35:
             self.glitch_strength = random.randint(3, 10)
-            self.scramble()
+            self._scramble()
         else:
             self.scrambled = self.text
             self.glitch_strength = 0
         self.update()
 
-    def scramble(self):
+    def _scramble(self):
         chars = list(self.text)
         for i in range(len(chars)):
             if random.random() < 0.15:
@@ -74,10 +70,10 @@ class GlitchTitle(QWidget):
 
         fm = self.fontMetrics()
         baseline_y = text_rect.y() + text_rect.height() - fm.descent()
+
         x = text_rect.x()
         y = baseline_y
 
-        # base white
         p.setPen(QColor(255, 255, 255))
         p.drawText(x, y, self.scrambled)
 
@@ -99,12 +95,12 @@ class GlitchTitle(QWidget):
         p.end()
 
 
-# -------------------- pill progress bar --------------------
+# -------------------- pill-style progress bar --------------------
 class PillProgressBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._value = 0
-        self._visual = 0.0
+        self._value = 0  #logical percent 0..100
+        self._visual = 0.0  #animated fraction 0..1
 
         self._anim_timer = QTimer(self)
         self._anim_timer.timeout.connect(self._step_anim)
@@ -122,12 +118,11 @@ class PillProgressBar(QWidget):
             self._visual += (target - self._visual) * 0.12
         self.update()
 
-    def minimumSizeHint(self):
-        return self.sizeHint()
-
     def sizeHint(self):
-        # wide pill, 40 px tall
-        return self.parent().width() // 3 if self.parent() else 400, 40
+        return QSize(420, 40)
+
+    def minimumSizeHint(self):
+        return QSize(300, 32)
 
     def paintEvent(self, e):
         p = QPainter(self)
@@ -147,9 +142,249 @@ class PillProgressBar(QWidget):
 
         radius = outer.height() / 2
 
-        # shadow
         shadow = outer.translated(0, 3)
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(0, 0, 0, 120))
         p.drawRoundedRect(shadow, radius, radius)
 
+        p.setBrush(QColor(255, 255, 255))
+        p.setPen(QColor(0, 0, 0))
+        p.drawRoundedRect(outer, radius, radius)
+
+        track_margin = 4
+        track = outer.adjusted(track_margin, track_margin, -track_margin, -track_margin)
+        track_radius = track.height() / 2
+        p.setBrush(QColor(210, 255, 250))
+        p.setPen(Qt.NoPen)
+        p.drawRoundedRect(track, track_radius, track_radius)
+
+        frac = max(0.0, min(1.0, float(self._visual)))
+        fill_width = int(track.width() * frac)
+
+        if fill_width > 0:
+            fill = QRect(track.left(), track.top(), fill_width, track.height())
+            p.setBrush(QColor(0, 255, 180))
+            p.drawRoundedRect(fill, track_radius, track_radius)
+
+        p.end()
+
+
+# -------------------- main ship screen --------------------
+class ShipScreen(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.setStyleSheet("background-color:black;")
+        self.setFocusPolicy(Qt.StrongFocus)
+        self._pressed = set()
+
+        self._expected_codes = []
+        self._found = set()
+        self._barcode_items = {}
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(40, 30, 40, 30)
+        root.setSpacing(10)
+
+        self.title = GlitchTitle("SHIPMENT IN PROGRESS")
+        self.title.setMinimumHeight(80)
+        root.addWidget(self.title)
+
+        root.addSpacing(30)
+
+        middle = QHBoxLayout()
+        middle.setSpacing(40)
+        root.addLayout(middle, stretch=1)
+
+        # -------- left column --------
+        left_col = QVBoxLayout()
+        left_col.setSpacing(24)
+        middle.addLayout(left_col, stretch=3)
+
+        left_col.addSpacing(70)
+
+        self.bubble = QWidget()
+        self.bubble.setObjectName("scanBubble")
+        self.bubble.setAttribute(Qt.WA_StyledBackground, True)
+        bubble_layout = QVBoxLayout(self.bubble)
+        bubble_layout.setContentsMargins(40, 18, 40, 18)
+
+        self.scan_msg = QLabel("")
+        self.scan_msg.setAlignment(Qt.AlignCenter)
+        self.scan_msg.setStyleSheet("color:#000000;")
+        self.scan_msg.setFont(QFont("Arial", 20))
+        bubble_layout.addWidget(self.scan_msg)
+        left_col.addWidget(self.bubble)
+
+        left_col.addSpacing(50)
+
+        self.progress = PillProgressBar()
+        self.progress.setFixedHeight(40)
+        left_col.addWidget(self.progress)
+
+        self.percent_label = QLabel("0%")
+        self.percent_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        self.percent_label.setStyleSheet("color:#ffffff;")
+        self.percent_label.setFont(QFont("Arial", 18))
+        left_col.addWidget(self.percent_label)
+
+        left_col.addStretch(1)
+
+        self.logo_label = QLabel()
+        self.logo_label.setFixedSize(96, 96)
+        self.logo_label.setStyleSheet("background:transparent;")
+        pm = QPixmap(CYAN_LOGO_PATH)
+        if not pm.isNull():
+            self.logo_label.setPixmap(
+                pm.scaled(96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
+        left_col.addWidget(self.logo_label, alignment=Qt.AlignLeft | Qt.AlignBottom)
+
+        # -------- right column --------
+        right_col = QVBoxLayout()
+        right_col.setSpacing(12)
+        middle.addLayout(right_col, stretch=4)
+
+        subtitle = QLabel("SCANNED BARCODES")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet("color:#eaeaea;")
+        subtitle.setFont(QFont("Arial", 26, QFont.Bold))
+        right_col.addWidget(subtitle)
+
+        panel = QWidget()
+        panel.setObjectName("scanPanel")
+        panel.setAttribute(Qt.WA_StyledBackground, True)
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(24, 24, 24, 24)
+
+        self.scanned_list = QListWidget()
+        self.scanned_list.setSelectionMode(QListWidget.NoSelection)
+        self.scanned_list.setStyleSheet(
+            """
+            QListWidget {
+                background-color:#ffffff;
+                border:0px;
+                color:#000000;
+            }
+            QListWidget::item {
+                padding:4px;
+            }
+            """
+        )
+        panel_layout.addWidget(self.scanned_list)
+        right_col.addWidget(panel)
+
+        self.setStyleSheet(
+            """
+            QWidget {
+                background-color:black;
+            }
+            QWidget#scanBubble {
+                background-color:#ffffff;
+                border-radius:40px;
+            }
+            QWidget#scanPanel {
+                background-color:#ffffff;
+                border-radius:40px;
+            }
+            QListWidget {
+                background-color:#ffffff;
+            }
+            """
+        )
+
+        root.addStretch(0)
+
+    # -------- manifest wiring --------
+    def set_manifest_codes(self, codes):
+        self._expected_codes = list(codes or [])
+        self._found.clear()
+        self._barcode_items.clear()
+        self.scanned_list.clear()
+        self.scan_msg.setText("")
+        self.progress.setValue(0)
+        self.percent_label.setText("0%")
+
+        for code in self._expected_codes:
+            item = QListWidgetItem(code)
+            f = item.font()
+            f.setPointSize(14)
+            item.setFont(f)
+            item.setForeground(QColor(0, 0, 0))
+            self.scanned_list.addItem(item)
+            self._barcode_items[code] = item
+
+    def on_barcode_matched(self, val, score=None, method=None):
+        if val in self._found:
+            return
+
+        self._found.add(val)
+        self.scan_msg.setText(f"{val} was scanned")
+
+        item = self._barcode_items.get(val)
+        if item:
+            item.setForeground(QColor(150, 150, 150))
+            f = item.font()
+            f.setStrikeOut(True)
+            item.setFont(f)
+
+        total = len(self._expected_codes)
+        if total > 0:
+            pct = int(round(len(self._found) * 100.0 / total))
+            self.progress.setValue(pct)
+            self.percent_label.setText(f"{pct}%")
+
+    # -------- 4-button exit combo --------
+    def keyPressEvent(self, e):
+        k = e.key()
+        self._pressed.add(k)
+        mods = e.modifiers()
+
+        if (
+            (mods & Qt.ControlModifier)
+            and Qt.Key_C in self._pressed
+            and Qt.Key_V in self._pressed
+            and k in (Qt.Key_Return, Qt.Key_Enter)
+        ):
+            QApplication.quit()
+            return
+
+        super().keyPressEvent(e)
+
+    def keyReleaseEvent(self, e):
+        self._pressed.discard(e.key())
+        super().keyReleaseEvent(e)
+
+
+# -------------------- standalone demo --------------------
+class _DemoDriver:
+    def __init__(self, screen: ShipScreen):
+        self.screen = screen
+        demo_codes = [
+            "1234567891",
+            "9876543210",
+            "2085692649",
+            "9340754051",
+            "2799407451",
+        ]
+        self.screen.set_manifest_codes(demo_codes)
+        self._remaining = list(demo_codes)
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self._fake_scan)
+        self.timer.start(1700)
+
+    def _fake_scan(self):
+        if not self._remaining:
+            self.timer.stop()
+            return
+        code = self._remaining.pop(0)
+        self.screen.on_barcode_matched(code, score=100, method="demo")
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    w = ShipScreen()
+    w.showFullScreen()
+    demo = _DemoDriver(w)
+    sys.exit(app.exec_())
