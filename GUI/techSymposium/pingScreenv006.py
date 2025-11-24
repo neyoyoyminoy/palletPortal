@@ -1,190 +1,177 @@
 """
 pingScreenv006.py
 
-standalone "ping" screen with a radar-style pizza slice:
-- static wedge pointing up
-- soft circular grid
-- pulsing fill inside the wedge once per second
-- color changes with distance:
-    >= 30 in  -> red
-    13–30 in  -> orange
-    < 13 in   -> green + "cameras starting up..." hint later if you want
-
-this standalone version simulates distance values so you can test layout/animation.
-later, the main gui can call a method like set_distance(dist_in) to drive it from
-dualPingWorkerv001.
-
-includes 4-button exit combo: hold ctrl + c + v, then press enter/return.
+single-direction ping screen with radar-style pizza slice
+- colors: red (>30 in), orange (13–30 in), green (<=13 in)
+- text:
+    "Move closer to begin scanning" when >13 in
+    "Cameras starting up..." when <=13 in
+- black background, theme accent lines
+- exposes set_distance(inches) so gui or worker can feed real data
+- standalone demo uses random distances
+- includes 4-button exit combo (ctrl + c + v + enter/return)
 """
 
-import sys
-import math
-import random
+import sys  #for argv + exit
+import random  #for demo distances
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QPainter, QColor, QFont, QPen
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel
 
 
-class PingRadarWidget(QWidget):
+class PingScreen(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(800, 400)
-        self.distance_in = 120.0  # simulated distance in inches
-        self._pulse_phase = 0.0   # for the inner ripple animation
 
-        # animation timer (~60 fps)
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._tick)
-        self.timer.start(16)
+        self.setWindowTitle("ping screen")  #window title
+        self.setStyleSheet("background-color:black;")  #black bg
+        self.setFocusPolicy(Qt.StrongFocus)  #capture key events
+        self._pressed = set()  #track keys for exit combo
 
+        #current distance in inches (None means unknown)
+        self._distance_in = None
+
+        #ui layout: just labels; radar is drawn in paintEvent
+        root = QVBoxLayout(self)
+        root.setContentsMargins(40, 40, 40, 40)
+        root.setSpacing(10)
+
+        #status text
+        self.status_label = QLabel("Move closer to begin scanning")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("color:#ffffff;")
+        self.status_label.setFont(QFont("Arial", 26, QFont.Bold))
+        root.addWidget(self.status_label)
+
+        #distance text
+        self.distance_label = QLabel("Distance: --.-- in")
+        self.distance_label.setAlignment(Qt.AlignCenter)
+        self.distance_label.setStyleSheet("color:#cccccc;")
+        self.distance_label.setFont(QFont("Arial", 18))
+        root.addWidget(self.distance_label)
+
+        root.addStretch(1)
+
+        #little hint at bottom
+        hint = QLabel("hold Ctrl + C + V then press Enter to exit demo")
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setStyleSheet("color:#666666;")
+        hint.setFont(QFont("Arial", 10))
+        root.addWidget(hint)
+
+        #simple animation timer for pulse inside the slice
+        self._pulse_phase = 0.0
+        self._pulse_dir = 1.0
+
+        self.anim_timer = QTimer(self)
+        self.anim_timer.timeout.connect(self._tick_pulse)
+        self.anim_timer.start(40)  #about 25 fps
+
+    #--------------- external api ---------------
     def set_distance(self, dist_in):
-        self.distance_in = max(0.0, float(dist_in))
-        self.update()
-
-    # simple internal sawtooth distance for demo
-    def _tick(self):
-        self._pulse_phase += 0.06
-        if self._pulse_phase > 2 * math.pi:
-            self._pulse_phase -= 2 * math.pi
-
-        # slow oscillation just for standalone testing
-        self.distance_in = 10 + 120 * (0.5 + 0.5 * math.sin(self._pulse_phase / 2.0))
-        self.update()
-
-    # choose color from distance
-    def current_color(self):
-        d = self.distance_in
-        if d < 13.0:
-            return QColor(0, 255, 128)   # green
-        elif d < 30.0:
-            return QColor(255, 165, 0)   # orange
+        """update the current measured distance in inches"""
+        self._distance_in = dist_in
+        if dist_in is None:
+            self.status_label.setText("Move closer to begin scanning")
+            self.distance_label.setText("Distance: --.-- in")
         else:
-            return QColor(255, 64, 64)   # red
+            self.distance_label.setText(f"Distance: {dist_in:0.2f} in")
+            if dist_in <= 13.0:
+                self.status_label.setText("Cameras starting up...")
+            else:
+                self.status_label.setText("Move closer to begin scanning")
+        self.update()  #redraw radar
 
-    def paintEvent(self, event):
+    #--------------- animation ---------------
+    def _tick_pulse(self):
+        #simple sawtooth motion to make the bands move
+        self._pulse_phase += 0.04 * self._pulse_dir
+        if self._pulse_phase > 1.0:
+            self._pulse_phase = 1.0
+            self._pulse_dir = -1.0
+        elif self._pulse_phase < 0.0:
+            self._pulse_phase = 0.0
+            self._pulse_dir = 1.0
+        self.update()
+
+    #--------------- drawing ---------------
+    def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
 
         w = self.width()
         h = self.height()
 
+        #background is already black by stylesheet, but clear anyway
         p.fillRect(self.rect(), QColor(0, 0, 0))
 
+        #radar area: upper middle portion of the screen
+        slice_width = int(w * 0.7)
+        slice_height = int(h * 0.42)
         cx = w // 2
-        base_y = h * 0.80  # bottom of wedge
-        radius = min(w * 0.35, h * 0.6)
+        bottom_y = int(h * 0.55)
 
-        # ----- draw soft circular grid -----
-        grid_color_main = QColor(0, 255, 255, 80)
-        grid_color_alt = QColor(255, 0, 255, 60)
+        left_x = cx - slice_width // 2
+        right_x = cx + slice_width // 2
+        top_y = bottom_y - slice_height
 
-        p.setPen(QPen(grid_color_main, 1))
-        for r_factor in (0.3, 0.5, 0.7, 0.9):
-            r = radius * r_factor
-            p.drawEllipse(int(cx - r), int(base_y - r), int(2 * r), int(2 * r))
+        #choose base color from distance
+        dist = self._distance_in
+        if dist is None:
+            base = QColor(0, 255, 255)  #cyan when unknown
+        elif dist <= 13.0:
+            base = QColor(0, 255, 0)  #green close
+        elif dist <= 30.0:
+            base = QColor(255, 165, 0)  #orange medium
+        else:
+            base = QColor(255, 0, 0)  #red far
 
-        p.setPen(QPen(grid_color_alt, 1))
-        # vertical grid lines
-        for xf in (-0.4, -0.2, 0, 0.2, 0.4):
-            x = cx + xf * radius * 1.3
-            p.drawLine(int(x), int(base_y - radius), int(x), int(base_y))
+        #draw soft circular grid (concentric arcs)
+        grid_pen = QPen(QColor(0, 255, 255, 80))
+        grid_pen.setWidth(2)
+        p.setPen(grid_pen)
+        for frac in (0.35, 0.55, 0.75, 0.95):
+            r = int(slice_height * frac)
+            rect = (cx - r, bottom_y - 2 * r, 2 * r, 2 * r)
+            p.drawArc(*rect, 0 * 16, 180 * 16)  #top half only
 
-        # ----- compute wedge geometry -----
-        half_angle_deg = 32
-        half_angle = math.radians(half_angle_deg)
+        #vertical center guideline
+        p.setPen(QPen(QColor(0, 255, 255, 60), 1))
+        p.drawLine(cx, bottom_y, cx, top_y)
 
-        tip = (cx, base_y)
-        left = (cx - radius * math.sin(half_angle),
-                base_y - radius * math.cos(half_angle))
-        right = (cx + radius * math.sin(half_angle),
-                 base_y - radius * math.cos(half_angle))
+        #pizza slice outline in base color
+        p.setPen(QPen(base, 4))
+        p.drawLine(cx, bottom_y, left_x, top_y + int(slice_height * 0.15))
+        p.drawLine(cx, bottom_y, right_x, top_y + int(slice_height * 0.15))
+        p.drawArc(left_x, top_y, slice_width, slice_height, 0 * 16, 180 * 16)
 
-        # outer wedge outline
-        p.setPen(QPen(self.current_color(), 3))
-        p.drawLine(int(tip[0]), int(tip[1]), int(left[0]), int(left[1]))
-        p.drawLine(int(tip[0]), int(tip[1]), int(right[0]), int(right[1]))
-        p.drawLine(int(left[0]), int(left[1]), int(right[0]), int(right[1]))
+        #radial pulse fill (bands inside the slice)
+        #bands move up/down using _pulse_phase
+        max_bands = 14
+        for i in range(max_bands):
+            t = (i + self._pulse_phase * max_bands) / max_bands
+            if t < 0.0 or t > 1.0:
+                continue
 
-        # ----- pulsing fill inside wedge -----
-        color = self.current_color()
-        fill_alpha_base = 40
-        fill_alpha_variation = 60
-        pulse = 0.5 + 0.5 * math.sin(self._pulse_phase * 2.0)
-        alpha = int(fill_alpha_base + fill_alpha_variation * pulse)
+            y = bottom_y - int(t * slice_height)
+            #fade alpha with t
+            alpha = int(40 + 120 * (1.0 - t))
+            band_color = QColor(base.red(), base.green(), base.blue(), alpha)
+            p.setPen(QPen(band_color, 3))
 
-        # fill as series of horizontal bands within wedge
-        steps = 32
-        for i in range(steps):
-            t0 = i / float(steps)
-            t1 = (i + 1) / float(steps)
+            #find horizontal span along the arc between the slice edges
+            frac = t
+            span = int((slice_width // 2) * (1.0 - 0.1 * (1.0 - frac)))
+            p.drawLine(cx - span, y, cx + span, y)
 
-            # interpolate between tip and top edge
-            y0 = base_y - t0 * radius
-            y1 = base_y - t1 * radius
-            if y1 < base_y - radius:
-                y1 = base_y - radius
-
-            # compute horizontal span from wedge edges at mid height
-            ym = (y0 + y1) / 2.0
-            frac = (base_y - ym) / radius  # 0 at tip, 1 at top
-            half_span = math.tan(half_angle) * frac * radius
-
-            x0 = cx - half_span
-            x1 = cx + half_span
-
-            band_color = QColor(color.red(), color.green(), color.blue(), alpha)
-            p.setPen(Qt.NoPen)
-            p.setBrush(band_color)
-            p.drawRect(int(x0), int(y1), int(x1 - x0), int(y0 - y1))
+        #sensor dot at bottom
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 255, 255))
+        p.drawEllipse(cx - 6, bottom_y - 6, 12, 12)
 
         p.end()
 
-
-class PingScreen(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("ping screen – pallet portal")
-        self.setStyleSheet("background-color: black;")
-        self.setFocusPolicy(Qt.StrongFocus)
-
-        self._pressed = set()  # for exit combo
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(20)
-
-        # radar widget
-        self.radar = PingRadarWidget()
-        layout.addWidget(self.radar, stretch=3)
-
-        # status text
-        self.status_label = QLabel("Move closer to begin scanning")
-        self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("color: #ffffff;")
-        self.status_label.setFont(QFont("Arial", 26))
-        layout.addWidget(self.status_label)
-
-        # distance text
-        self.distance_label = QLabel("Distance: -- in")
-        self.distance_label.setAlignment(Qt.AlignCenter)
-        self.distance_label.setStyleSheet("color: #cccccc;")
-        self.distance_label.setFont(QFont("Arial", 18))
-        layout.addWidget(self.distance_label)
-
-        # timer to update labels based on radar distance
-        self.ui_timer = QTimer(self)
-        self.ui_timer.timeout.connect(self._update_labels)
-        self.ui_timer.start(80)
-
-    def _update_labels(self):
-        d = self.radar.distance_in
-        self.distance_label.setText(f"Distance: {d:0.2f} in")
-        if d < 13.0:
-            self.status_label.setText("Cameras starting up...")
-        else:
-            self.status_label.setText("Move closer to begin scanning")
-
-    # ---- 4-button exit combo ----
+    #--------------- exit combo ---------------
     def keyPressEvent(self, e):
         k = e.key()
         self._pressed.add(k)
@@ -206,8 +193,21 @@ class PingScreen(QWidget):
         super().keyReleaseEvent(e)
 
 
+# ----------------------------------------------------------------------
+# standalone demo
+# ----------------------------------------------------------------------
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     w = PingScreen()
     w.showFullScreen()
+
+    #demo: random distances every 0.8 s
+    def _rand_update():
+        dist = random.uniform(8.0, 40.0)
+        w.set_distance(dist)
+
+    t = QTimer()
+    t.timeout.connect(_rand_update)
+    t.start(800)
+
     sys.exit(app.exec_())
