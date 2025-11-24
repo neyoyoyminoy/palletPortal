@@ -1,5 +1,6 @@
 """
-GUIv051.py
+GUIvTechSymposium.py
+
 Pallet Portal GUI:
 - USB-gated welcome screen
 - Menu (Ship / View Order)
