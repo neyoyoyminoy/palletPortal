@@ -8,7 +8,6 @@ layout goals:
 - right: "SCANNED BARCODES" title + rounded white panel with list
 - theme: black bg, white text, cyan accent
 - includes 4-button exit combo (ctrl + c + v + enter/return)
-- includes demo driver so you can test layout without cameras
 """
 
 import sys  #for argv + exit
@@ -406,37 +405,9 @@ class ShipScreen(QWidget):
         super().keyReleaseEvent(e)
 
 
-# -------------------- standalone demo driver --------------------
-# this is just to test layout + behavior without cameras plugged in
-class _DemoDriver:
-    def __init__(self, screen: ShipScreen):
-        self.screen = screen  #ship screen ref
-        demo_codes = [
-            "1234567891",
-            "9876543210",
-            "2085692649",
-            "9340754051",
-            "2799407451",
-        ]
-        self.screen.set_manifest_codes(demo_codes)
-        self._remaining = list(demo_codes)
-
-        self.timer = QTimer()
-        self.timer.timeout.connect(self._fake_scan)
-        self.timer.start(1700)  #fake scan every 1.7 s
-
-    def _fake_scan(self):
-        if not self._remaining:
-            self.timer.stop()
-            return
-        code = self._remaining.pop(0)
-        self.screen.on_barcode_matched(code, score=100, method="demo")  #simulate match
-
-
 # -------------------- entry point --------------------
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     w = ShipScreen()
     w.showFullScreen()  #for the 1024x600 jetson display
-    demo = _DemoDriver(w)  #remove this when wiring to real barcode workers
     sys.exit(app.exec_())
