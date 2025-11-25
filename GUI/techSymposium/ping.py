@@ -17,7 +17,7 @@ Features:
 
 import sys
 import math
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import (
     QPainter,
     QColor,
@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import QWidget, QApplication
 class PingScreen(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        readyForShip = pyqtSignal(float, str)
 
         self.setWindowTitle("Ping Distance")
         self.setFocusPolicy(Qt.StrongFocus)
@@ -54,6 +55,11 @@ class PingScreen(QWidget):
     def set_distance(self, dist_in):
         self.distance_in = dist_in
         self.update()
+
+        # if ready for ship (<13 in)
+        if dist_in is not None and dist_in < 13:
+            self.readyForShip.emit(dist_in, "either")
+
 
     # --------------------------
     # Animation tick
