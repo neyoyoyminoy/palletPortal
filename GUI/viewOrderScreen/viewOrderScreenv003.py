@@ -170,11 +170,4 @@ if __name__ == "__main__":
     w = ViewOrderScreen()
     w.showFullScreen()
 
-    # add some dummy rows
-    now = datetime.now()
-    for i in range(5):
-        start = now - timedelta(minutes=5 - i)
-        end = start + timedelta(minutes=random.randint(1, 5))
-        w.add_order(f"T-{101+i}", start, end, random.randint(1, 6))
-
     sys.exit(app.exec_())
