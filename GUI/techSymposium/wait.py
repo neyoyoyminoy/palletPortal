@@ -238,3 +238,4 @@ class WaitScreen(QWidget):
 
     def keyReleaseEvent(self, e):
         self._pressed.discard(e.key())
+        super().keyReleaseEvent(e)
