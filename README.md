@@ -1,6 +1,6 @@
-# Pallet Portal
+# palletPortal
 
-Pallet Portal is a dual archway automated pallet scanning system designed to streamline outbound shipping operations by integrating barcode detection, object tracking, and manifest verification. It uses the **NVIDIA Jetson Orin Nano**, custom 3D printed hardware, and a Python based graphical interface.
+Pallet Portal is a dual archway automated pallet scanning system designed to streamline outbound shipping operations by integrating barcode detection, object tracking, and manifest verification. It uses the **NVIDIA Jetson Orin Nano**, custom 3D printed hardware, and a Python graphical user interface.
 
 ## Overview
 - Dual IMX219 cameras for live barcode capture and object tracking.  
@@ -36,7 +36,7 @@ Pallet Portal is a dual archway automated pallet scanning system designed to str
 
 ## Current Focus
 - Refining UI housing and crossmember mounting.  
-- Transitioning from YOLO to Pillow based lightweight detection.  
+- Fusing YOLO individuality to Pillow supportive lightweight detection.  
 - Optimizing IR scanner and camera coordination to prevent redundant reads.  
 - Improving print efficiency for long 3D jobs (>10 hours per iteration).  
 
