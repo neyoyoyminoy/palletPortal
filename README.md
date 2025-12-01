@@ -63,10 +63,10 @@ gst-launch-1.0 nvarguscamerasrc sensor-id=0 ! 'video/x-raw(memory:NVMM),width=12
 
 ## Contributors
 - **Brendan Nellis** — Lead Developer, Hardware Integration, GUI and System Design
-- **Simeon-Paul O'James** — Lead AI Model Developer, Hardware Integration
-- **Jose Escareno II** — Physical Model Fabrication and Assembly  
+- **Simeon-Paul O'James** — Lead AI Model Developer
+- **Jose Escareno II** — Lead Hardware Engineer
 - **Elliot Cid** — Power Engineer
-- **Jim Yanney** — Physical Dimensions Lead
+- **Jim Yanney** — Hardware and Software Implementation Engineer
 
 ## License
 This project is for academic and research purposes under UTSA Senior Design Fall 2025.  
